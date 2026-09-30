@@ -3,7 +3,7 @@
 **Course:** INTE 22253 – Distributed Systems and Cloud Computing  
 **Institution:** University of Kelaniya, Faculty of Science, Department of Industrial Management  
 **Assignment:** Assignment 01 – Part C – Option 2 (MapReduce Log Analysis System)  
-**Team Role:** Member 3 – Integration, Testing, Performance Measurement & Documentation  
+**Team:** Pavithira Rajkumar (Member 1), Dayaleeswaran (Member 2), Rajithan Pathmanathan (Member 3)  
 
 ---
 
@@ -48,7 +48,7 @@ The execution pipeline adheres strictly to the canonical MapReduce data flow:
 ```
 
 ### Stages of Execution:
-1. **Input Splitting (`InputManager`):** Scans the input directory, validates file accessibility, measures total byte size, and partitions files into balanced worker splits.
+1. **Input Splitting (`InputManager`):** Scans the input directory, validates file accessibility, measures file count, bytes and lines, and cuts every file into byte-range splits (default 256 KiB). A Map worker reads only its own range; each line belongs to the split containing its first byte.
 2. **Parallel Map Phase (`mapper.py`):** Independent worker processes tokenize log records, filter noise, and emit intermediate key-value pairs `(token, 1)`.
 3. **Shuffle & Partition Phase (`shuffle.py`, `partitioner.py`):** Aggregates intermediate pairs by unique key (`key -> [1, 1, ...]`) and applies deterministic hashing (`int(MD5(key), 16) % num_reducers`) to ensure identical keys always route to the same reducer partition.
 4. **Parallel Reduce Phase (`reducer.py`):** Reducer worker processes sum the occurrences for all keys in their assigned partition bucket.
@@ -93,6 +93,7 @@ MapReduce-Log-Analyzer/
 │   ├── __init__.py
 │   ├── test_input_manager.py          # Member 1 unit tests (discovery, splitting)
 │   ├── test_mapper.py                 # Member 1 unit tests (tokenization, mapping)
+│   ├── test_coordinator.py            # Member 1 tests (Map stage, workers, metrics)
 │   ├── test_partitioner.py            # Member 2 unit tests (hash consistency)
 │   ├── test_shuffle.py                # Member 2 unit tests (grouping, partition buckets)
 │   ├── test_reducer.py                # Member 2 unit tests (aggregation)
@@ -102,12 +103,12 @@ MapReduce-Log-Analyzer/
 │   ├── architecture.md                # System design & Cloud vs. Local comparison
 │   ├── workflow.md                    # Data flow & interface contracts
 │   ├── implementation_notes.md        # Concurrency & error handling notes
-│   ├── experiment_results.md          # Empirical benchmark log with actual data
-│   └── figure7_execution.png          # High-resolution Figure 7 terminal screenshot
+│   ├── member1_coordinator_map.md     # Member 1 component notes
+│   └── experiment_results.md          # Measured benchmark results
 │
 └── sample_data/                       # Test datasets
     ├── generate_datasets.py           # Reproducible dataset generator script
-    ├── render_figure7.py              # Figure 7 screenshot generator script
+    ├── benchmark.py                   # Worker-count benchmark (measured, median of runs)
     ├── small/                         # Lightweight test logs (115 KB, 1,000 lines)
     └── medium/                        # Scaled benchmark logs (3.30 MB, 30,000 lines)
 ```
@@ -131,7 +132,7 @@ MapReduce-Log-Analyzer/
 
 1. **Clone the repository:**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/Rajithan-Pathmanathan/MapReduce-Log-Analyzer.git
    cd MapReduce-Log-Analyzer
    ```
 
@@ -163,7 +164,12 @@ python src/main.py
 
 # Run on the medium benchmark dataset:
 python src/main.py --input sample_data/medium --map-workers 4 --reduce-workers 2 --top-n 10
+
+# Compare worker counts (prints a Markdown table of measured timings):
+python sample_data/benchmark.py
 ```
+
+Worker counts and `--top-n` must be at least 1. While running, the coordinator prints one line per split, the shuffle partition sizes and one line per reducer, followed by the summary.
 
 ---
 
@@ -183,7 +189,7 @@ Runtime options can be set via CLI arguments or modified centrally in `src/confi
 
 ## 9. Output Description & Verified Results
 
-When the pipeline finishes, the system writes the finalized report to `output/result.txt`:
+When the pipeline finishes, the system writes the report to `output/result.txt` (ignored by git). Actual output of `python src/main.py --input sample_data/medium --map-workers 4 --reduce-workers 2`:
 
 ```text
 MapReduce Log Analysis Results
@@ -193,34 +199,40 @@ Input Files    : 5
 Input Size     : 3.2992 MB (3,459,447 bytes)
 Map Workers    : 4
 Reduce Workers : 2
-Unique Keys    : 152
-Execution Time : 0.6312 seconds
+Input Lines    : 30,000
+Input Splits   : 15
+Map Output     : 253,868 (term, 1) pairs
+Unique Keys    : 84
+Keys/Reducer   : [47, 37]
+Execution Time : 0.7535 seconds
 
 Phase Breakdown
 ---------------
-Map Phase      : 0.4215 seconds
-Shuffle Phase  : 0.0519 seconds
-Reduce Phase   : 0.1562 seconds
+Map Phase      : 0.4315 seconds
+Shuffle Phase  : 0.0244 seconds
+Reduce Phase   : 0.2908 seconds
 
 Top Results
 -----------
-000z                          30000
-168                           30000
-192                           30000
-2026-09-30t14                 30000
-info                          14909
-for                            9986
-warning                        7955
-error                          6537
-inventory-api                  6042
-payment-gateway                6041
+info                    14909
+for                      9986
+warning                  7955
+error                    6537
+inventory-api            6042
+payment-gateway          6041
+web-frontend             6023
+from                     6019
+db-cluster               5997
+database                 5969
 ```
+
+Timings vary slightly between runs; counts do not.
 
 ---
 
 ## 10. Automated Testing
 
-The project includes 26 unit and end-to-end integration test cases covering the complete pipeline:
+The project includes 61 unit and end-to-end integration test cases covering the complete pipeline:
 
 ```bash
 # Run all tests using Python standard unittest:
@@ -239,17 +251,25 @@ python -m unittest discover -s tests -p "test_*.py"
 
 ---
 
-## 11. Performance Experiment (Empirical Results)
+## 11. Performance Experiment (Measured Results)
 
-Benchmark evaluations were executed on a 3.30 MB dataset (30,000 log lines across 5 files) using an Intel 12-thread host on Windows 11:
+`python sample_data/benchmark.py` on `sample_data/medium` (5 files, 3,459,447 bytes, 30,000 lines, 15 splits, 253,868 intermediate pairs, 84 unique keys). Median of 3 runs, Python 3.12.10, Windows 11, 12 logical CPUs:
 
-| Workers (Map / Reduce) | Map Time (s) | Shuffle Time (s) | Reduce Time (s) | Total Wall-Clock Time (s) |
-| :---: | :---: | :---: | :---: | :---: |
-| **1 Map / 1 Reduce** | 0.6388 s | 0.0396 s | 0.1278 s | **0.8076 s** |
-| **2 Map / 1 Reduce** | 0.4745 s | 0.0374 s | 0.1285 s | **0.6418 s** |
-| **4 Map / 2 Reduce** | 0.4215 s | 0.0519 s | 0.1562 s | **0.6312 s** |
+| Map workers | Reduce workers | Map (s) | Shuffle (s) | Reduce (s) | Total (s) |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| 1 | 1 | 0.5166 | 0.0226 | 0.2558 | **0.8011** |
+| 2 | 1 | 0.4113 | 0.0236 | 0.2564 | **0.6962** |
+| 2 | 2 | 0.4161 | 0.0238 | 0.2628 | **0.7107** |
+| 4 | 2 | 0.4451 | 0.0241 | 0.2783 | **0.8137** |
+| 8 | 4 | 0.5634 | 0.0247 | 0.3210 | **0.9121** |
 
-**Observation:** The parallel Map phase achieved significant runtime reduction (from 0.6388s down to 0.4215s). However, overall scaling exhibits diminishing returns due to process pool spawning and inter-process communication serialization overhead on a local single-node architecture.
+**Observation:** 2 Map workers were fastest (Map 0.52 s → 0.41 s). With 4 or 8 workers the job got slower, because on Windows each worker process is started with `spawn` (a fresh interpreter), and at 3.3 MB that start-up cost is larger than the parallel work saved. The Reduce phase (84 keys) is almost entirely process start-up time. Details: `docs/experiment_results.md`.
+
+---
+
+## 11a. Figure 7
+
+Figure 7 must be a real screenshot. Run `python src/main.py --input sample_data/medium --map-workers 4 --reduce-workers 2` in a terminal and capture the window showing the command, the coordinator progress lines and the summary. Caption: **Figure 7: MapReduce program execution and output**.
 
 ---
 
@@ -266,6 +286,6 @@ Benchmark evaluations were executed on a 3.30 MB dataset (30,000 log lines acros
 
 | Member | Major Responsibilities | Implemented Components |
 | :--- | :--- | :--- |
-| **Member 1** | Coordinator + Map Phase | `src/input_manager.py`, `src/mapper.py`, `src/coordinator.py`, `tests/test_input_manager.py`, `tests/test_mapper.py` |
-| **Member 2** | Shuffle/Partition + Reduce Phase | `src/partitioner.py`, `src/shuffle.py`, `src/reducer.py`, `tests/test_partitioner.py`, `tests/test_shuffle.py`, `tests/test_reducer.py` |
-| **Member 3** | Integration, Testing, Performance & Docs | `src/output_manager.py`, `src/main.py`, `tests/test_integration.py`, `docs/*`, `README.md`, Figure 7 artifact |
+| **Member 1** – Pavithira Rajkumar | Coordinator + Map Phase | `src/input_manager.py`, `src/mapper.py`, `src/coordinator.py`, `tests/test_input_manager.py`, `tests/test_mapper.py`, `tests/test_coordinator.py` |
+| **Member 2** – Dayaleeswaran | Shuffle/Partition + Reduce Phase | `src/partitioner.py`, `src/shuffle.py`, `src/reducer.py`, `tests/test_partitioner.py`, `tests/test_shuffle.py`, `tests/test_reducer.py` |
+| **Member 3** – Rajithan Pathmanathan | Integration, Testing, Performance & Docs | `src/output_manager.py`, `src/main.py`, `tests/test_integration.py`, `sample_data/*`, `docs/*`, `README.md`, Figure 7 |

@@ -26,42 +26,58 @@
 
 ---
 
-## 3. Worker Scaling Performance Matrix (Actual Empirical Measurements)
+## 3. Worker Scaling (Measured)
 
-The following metrics represent actual wall-clock timings captured on the test hardware. **No fabricated or simulated values are used.**
+Produced by `python sample_data/benchmark.py` (medium) and `python sample_data/benchmark.py --input sample_data/small`. Each row is the median of 3 runs of the full pipeline. The script also checks that every run and every configuration produced identical counts.
 
-| Run # | Map Workers | Reduce Workers | Dataset | Total Input Size | Unique Keys | Map Phase (s) | Shuffle Phase (s) | Reduce Phase (s) | Total Wall-Clock Time (s) |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Run 1** | 1 | 1 | Medium (30k lines) | 3.2992 MB | 152 | 0.6388 s | 0.0396 s | 0.1278 s | **0.8076 s** |
-| **Run 2** | 2 | 1 | Medium (30k lines) | 3.2992 MB | 152 | 0.4745 s | 0.0374 s | 0.1285 s | **0.6418 s** |
-| **Run 3** | 4 | 2 | Medium (30k lines) | 3.2992 MB | 152 | 0.4215 s | 0.0519 s | 0.1562 s | **0.6312 s** |
+### Medium dataset – 15 splits, 253,868 intermediate pairs, 84 unique keys
 
----
+| Map workers | Reduce workers | Map (s) | Shuffle (s) | Reduce (s) | Total (s) |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| 1 | 1 | 0.5166 | 0.0226 | 0.2558 | **0.8011** |
+| 2 | 1 | 0.4113 | 0.0236 | 0.2564 | **0.6962** |
+| 2 | 2 | 0.4161 | 0.0238 | 0.2628 | **0.7107** |
+| 4 | 2 | 0.4451 | 0.0241 | 0.2783 | **0.8137** |
+| 8 | 4 | 0.5634 | 0.0247 | 0.3210 | **0.9121** |
 
-## 4. Top Key-Value Aggregation Results (From Medium Benchmark)
+### Small dataset – 4 splits (the empty file produces none), 8,478 intermediate pairs, 84 unique keys
 
-| Rank | Token / Event Key | Aggregated Count | Semantic Description |
-| :---: | :--- | :---: | :--- |
-| 1 | `000z` | 30,000 | ISO timestamp millisecond suffix |
-| 2 | `168` | 30,000 | Subnet IP octet prefix |
-| 3 | `192` | 30,000 | Private class C IP octet prefix |
-| 4 | `2026-09-30t14` | 30,000 | Timestamp date and hour prefix |
-| 5 | `info` | 14,909 | Informational severity log events |
-| 6 | `for` | 9,986 | Common message preposition token |
-| 7 | `warning` | 7,955 | Warning severity log alerts |
-| 8 | `error` | 6,537 | System error level events |
-| 9 | `inventory-api` | 6,042 | Microservice component identifier |
-| 10 | `payment-gateway` | 6,041 | Payment gateway service identifier |
+| Map workers | Reduce workers | Map (s) | Shuffle (s) | Reduce (s) | Total (s) |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| 1 | 1 | 0.2668 | 0.0008 | 0.2580 | **0.5303** |
+| 2 | 1 | 0.2763 | 0.0009 | 0.2585 | **0.5373** |
+| 2 | 2 | 0.2809 | 0.0009 | 0.2742 | **0.5619** |
+| 4 | 2 | 0.3282 | 0.0012 | 0.2787 | **0.6088** |
+| 8 | 4 | 0.3266 | 0.0011 | 0.3172 | **0.6499** |
 
 ---
 
-## 5. Scaling Observations & Analysis for Academic Report
+## 4. Top Results (Medium Dataset, 4 Map / 2 Reduce)
 
-1. **Map Phase Parallel Speedup:**
-   - Moving from 1 Map worker to 2 Map workers decreased Map phase duration from **0.6388s to 0.4745s** (a ~25.7% latency reduction).
-   - Expanding to 4 Map workers further reduced Map phase runtime to **0.4215s** (a ~34.0% cumulative reduction over single-worker baseline).
-   
-2. **Diminishing Returns & Multiprocessing Overhead:**
-   - On Windows, worker processes are spawned rather than forked, incurring process initialization, IPC serialization (pickling/unpickling input splits and intermediate tuples), and inter-process communication overhead.
-   - For a 3.3 MB dataset, spawning 4 Map processes and 2 Reduce processes introduced slight IPC overhead in the shuffle/reduce stages (0.0519s and 0.1562s respectively).
-   - This empirical observation demonstrates a key distributed systems principle: *Parallelization benefits are non-linear on small-to-medium local workloads due to coordination and IPC costs.*
+From `output/result.txt`. Timestamps, IP octets and status codes are not counted as terms (Member 1 tokenisation rule).
+
+| Rank | Term | Count |
+| :---: | :--- | :---: |
+| 1 | `info` | 14,909 |
+| 2 | `for` | 9,986 |
+| 3 | `warning` | 7,955 |
+| 4 | `error` | 6,537 |
+| 5 | `inventory-api` | 6,042 |
+| 6 | `payment-gateway` | 6,041 |
+| 7 | `web-frontend` | 6,023 |
+| 8 | `from` | 6,019 |
+| 9 | `db-cluster` | 5,997 |
+| 10 | `database` | 5,969 |
+
+---
+
+## 5. Observations for the Report
+
+1. **Parallel Map helps up to 2 workers on the medium set.** Map time fell from 0.5166 s (1 worker) to 0.4113 s (2 workers), about 20% faster, and total time from 0.8011 s to 0.6962 s.
+2. **More workers were slower at this size.** 4 and 8 Map workers took 0.4451 s and 0.5634 s. On Windows every worker is started with `spawn` (a new Python interpreter that re-imports the project), and the intermediate pairs are pickled back to the coordinator. At 3.3 MB that fixed cost outweighs the extra parallelism.
+3. **Reduce time is mostly process start-up.** Only 84 keys are summed, yet the phase takes about 0.26–0.32 s and grows with the reducer count, so it measures pool creation rather than aggregation work.
+4. **Small dataset shows no speed-up at all.** 1,000 lines are split into only 4 splits, so the 1-worker run is the fastest (0.5303 s).
+5. **Shuffle is cheap** (≈0.02 s for 253,868 pairs) because it is an in-memory group-by inside the coordinator process; in a real cluster this step moves data over the network and is usually the most expensive.
+6. **Correctness does not depend on worker count:** all 10 configurations produced identical counts.
+
+More workers would be expected to pay off on a much larger dataset, where Map work dominates the fixed process cost; that was not measured here.

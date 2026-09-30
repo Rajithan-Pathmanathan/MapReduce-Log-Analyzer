@@ -33,7 +33,7 @@
                               [OutputManager]
                                        │
                                        ▼
-                       [output/analysis_summary.txt] + Terminal UI
+                       [output/result.txt] + Terminal UI
 ```
 
 ---
