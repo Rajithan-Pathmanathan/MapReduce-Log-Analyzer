@@ -39,12 +39,31 @@
 ## 3. Data Processing & Tokenization Rules
 
 - **Input Format:** Standard text files (`.log`, `.txt`) containing server logs (e.g., Apache, Nginx, application server logs).
-- **Line Normalization:**
-  - Strip surrounding whitespace.
-  - Lowercase all tokens (case-insensitive aggregation).
-  - Extract alphanumeric tokens using regex `r"\b[a-zA-Z0-9_-]+\b"`.
-  - Filter out tokens shorter than `min_word_length` (e.g., length < 2).
-  - Discard empty tokens.
+- **Line Normalization** (`src/mapper.py`):
+  - Lowercase the line (unless `case_sensitive=True`).
+  - Extract tokens with `(?<![a-z0-9_-])[a-z][a-z0-9_-]*`: a token must start with a letter,
+    so timestamps, IP octets and status codes are not counted; `db_pool`, `http2`,
+    `payment-gateway` are kept whole.
+  - Drop tokens shorter than `min_word_length` (default 2).
+  - Blank lines emit nothing.
+
+---
+
+## 3a. Coordinator + Map Phase (Member 1)
+
+**Flow** (`Coordinator.run_map_stage()`):
+
+1. `InputManager.validate_directory()` / `discover_files()` – finds every `*.log` / `*.txt` in the input directory (no hard-coded names).
+2. `InputManager.measure_input()` – real file count, bytes and line count, stored in `Coordinator.metrics`.
+3. `create_byte_splits(files, config.split_size_bytes)` – cuts each file into byte ranges (default 256 KiB). Empty files produce no splits.
+4. `run_map_phase(splits)` – a `multiprocessing.Pool` of `min(map_workers, len(splits))` processes runs `map_split_worker` on each split. A worker opens the file itself and reads only its range; a line belongs to the split containing its first byte, so no line is lost or counted twice.
+5. Map time is measured with `time.perf_counter()` into `metrics["map_time_seconds"]`.
+
+**Interface to Member 2:** `run_map_stage()` returns a flat `List[Tuple[str, int]]`, e.g. `[("error", 1), ("database", 1), ...]`, ordered by split id. `execute_job()` passes it straight to `ShuffleManager.shuffle_and_partition()`.
+
+**Metrics recorded:** `input_files_count`, `total_input_bytes`, `total_input_lines`, `input_splits`, `map_workers`, `map_worker_pids`, `intermediate_pairs`, `map_time_seconds`.
+
+**Tests:** `python -m unittest tests.test_coordinator tests.test_mapper tests.test_input_manager`
 
 ---
 
