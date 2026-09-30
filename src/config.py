@@ -41,6 +41,10 @@ class Config:
     # Log token filtering settings
     min_word_length: int = 2
 
+    # Map phase settings (Member 1)
+    split_size_bytes: int = 256 * 1024   # bytes per input split
+    verbose: bool = True                 # print coordinator progress lines
+
     @property
     def output_file_path(self) -> Path:
         """Returns the full path to the final output file."""

@@ -62,17 +62,10 @@ class ShuffleManager:
         :param intermediate_pairs: Flat iterable of (key, value) tuples from Map workers.
         :return: Dict mapping reducer_id to its assigned sub-dictionary of {key: [values]}.
         """
-        # Initialize partition dictionaries for each reducer
+        # Every reducer gets an entry, even if no key hashes to it
         partitions: Dict[int, Dict[str, List[int]]] = {
             r_id: {} for r_id in range(self.num_reducers)
         }
-
-        # Step 1: Group occurrences by key
-        grouped_data = self.group_by_key(intermediate_pairs)
-
-        # Step 2: Route each unique key to its deterministic partition
-        for key, values in grouped_data.items():
-            partition_id = self.partitioner.get_partition(key)
-            partitions[partition_id][key] = values
-
+        for key, values in self.group_by_key(intermediate_pairs).items():
+            partitions[self.partitioner.get_partition(key)][key] = values
         return partitions

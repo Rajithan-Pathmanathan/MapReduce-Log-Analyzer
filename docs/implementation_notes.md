@@ -25,7 +25,7 @@
 - As a consequence, `hash("error")` evaluated in Process A might yield a different integer than in Process B, violating partition consistency.
 
 ### Solution: Cryptographic / Digest Hashing
-- Member 2's `Partitioner` will use a stable hash algorithm such as `hashlib.md5` or `hashlib.sha256`:
+- Member 2's `Partitioner` uses `hashlib.md5`:
   ```python
   import hashlib
 
@@ -39,12 +39,49 @@
 ## 3. Data Processing & Tokenization Rules
 
 - **Input Format:** Standard text files (`.log`, `.txt`) containing server logs (e.g., Apache, Nginx, application server logs).
-- **Line Normalization:**
-  - Strip surrounding whitespace.
-  - Lowercase all tokens (case-insensitive aggregation).
-  - Extract alphanumeric tokens using regex `r"\b[a-zA-Z0-9_-]+\b"`.
-  - Filter out tokens shorter than `min_word_length` (e.g., length < 2).
-  - Discard empty tokens.
+- **Line Normalization** (`src/mapper.py`):
+  - Lowercase the line (unless `case_sensitive=True`).
+  - Extract tokens with `(?<![a-z0-9_-])[a-z][a-z0-9_-]*`: a token must start with a letter,
+    so timestamps, IP octets and status codes are not counted; `db_pool`, `http2`,
+    `payment-gateway` are kept whole.
+  - Drop tokens shorter than `min_word_length` (default 2).
+  - Blank lines emit nothing.
+
+---
+
+## 3a. Coordinator + Map Phase (Member 1)
+
+**Flow** (`Coordinator.run_map_stage()`):
+
+1. `InputManager.validate_directory()` / `discover_files()` – finds every `*.log` / `*.txt` in the input directory (no hard-coded names).
+2. `InputManager.measure_input()` – real file count, bytes and line count, stored in `Coordinator.metrics`.
+3. `create_byte_splits(files, config.split_size_bytes)` – cuts each file into byte ranges (default 256 KiB). Empty files produce no splits.
+4. `run_map_phase(splits)` – a `multiprocessing.Pool` of `min(map_workers, len(splits))` processes runs `map_split_worker` on each split. A worker opens the file itself and reads only its range; a line belongs to the split containing its first byte, so no line is lost or counted twice.
+5. Map time is measured with `time.perf_counter()` into `metrics["map_time_seconds"]`.
+
+**Interface to Member 2:** `run_map_stage()` returns a flat `List[Tuple[str, int]]`, e.g. `[("error", 1), ("database", 1), ...]`, ordered by split id. `execute_job()` passes it straight to `ShuffleManager.shuffle_and_partition()`.
+
+**Metrics recorded:** `input_files_count`, `total_input_bytes`, `total_input_lines`, `input_splits`, `map_workers`, `map_worker_pids`, `intermediate_pairs`, `map_time_seconds`.
+
+**Tests:** `python -m unittest tests.test_coordinator tests.test_mapper tests.test_input_manager`
+
+---
+
+## 3b. Shuffle/Partition + Reduce Phase (Member 2)
+
+**Flow** (called from `Coordinator.execute_job()`):
+
+1. `ShuffleManager.group_by_key(pairs)` – `[("error", 1), ("info", 1), ("error", 1)]` → `{"error": [1, 1], "info": [1]}`.
+2. `ShuffleManager.shuffle_and_partition(pairs)` – routes every grouped key to `Partitioner.get_partition(key)` = `md5(key) % reduce_workers`. Returns `{reducer_id: {key: [values]}}` with an entry for every reducer, even an empty one.
+3. `Coordinator.run_reduce_phase(partitions)` – a `multiprocessing.Pool` with one process per reducer runs `reduce_worker(partition, reducer_id)`, which applies `reduce_values` (`sum(values)`) to each key.
+
+**Why Shuffle is needed:** if Mapper 1, 2 and 3 each emit `("error", 1)`, no single mapper knows the total. Shuffle sends every `error` value to the same reducer, so that reducer alone can compute `error = 3`. Because each key goes to exactly one partition, reducer outputs never overlap and can simply be concatenated.
+
+**Interface to Member 3:** `run_reduce_phase()` returns `List[List[Tuple[str, int]]]`, one list of `(key, total)` per reducer, e.g. `[[("error", 25), ("warning", 12)], [("database", 17)]]`. `OutputManager.consolidate_and_sort()` flattens and sorts it.
+
+**Metrics recorded:** `shuffle_time_seconds`, `reduce_time_seconds`, `keys_per_reducer`, `reduce_workers`, plus `intermediate_pairs` from the Map stage.
+
+**Tests:** `python -m unittest tests.test_partitioner tests.test_shuffle tests.test_reducer`
 
 ---
 

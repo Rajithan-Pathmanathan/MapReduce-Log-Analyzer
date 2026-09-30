@@ -43,10 +43,4 @@ def reduce_worker(
     :param worker_id: Numeric identifier for the reduce worker.
     :return: List of finalized (key, count) tuples for this partition.
     """
-    reduced_results: List[Tuple[str, int]] = []
-
-    for key, values in partition_data.items():
-        total = reduce_values(key, values)
-        reduced_results.append((key, total))
-
-    return reduced_results
+    return [(key, reduce_values(key, values)) for key, values in partition_data.items()]
