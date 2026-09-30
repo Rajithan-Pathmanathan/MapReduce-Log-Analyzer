@@ -267,13 +267,13 @@ python -m unittest discover -s tests -p "test_*.py"
 
 ---
 
-## 11a. Figure 7
+## 12. Figure 7
 
 Figure 7 must be a real screenshot. Run `python src/main.py --input sample_data/medium --map-workers 4 --reduce-workers 2` in a terminal and capture the window showing the command, the coordinator progress lines and the summary. Caption: **Figure 7: MapReduce program execution and output**.
 
 ---
 
-## 12. Limitations (Local Simulation vs. Production Cloud)
+## 13. Limitations (Local Simulation vs. Production Cloud)
 
 1. **Single-Node Resource Contention:** All simulated workers run on one physical machine, sharing CPU cache, RAM bus, and disk bandwidth.
 2. **Local File I/O vs. Distributed Storage:** Files are read from local disk; there is no distributed filesystem (e.g., HDFS, Amazon S3) with data block locality.
@@ -282,7 +282,7 @@ Figure 7 must be a real screenshot. Run `python src/main.py --input sample_data/
 
 ---
 
-## 13. Team Division of Responsibilities
+## 14. Team Division of Responsibilities
 
 | Member | Major Responsibilities | Implemented Components |
 | :--- | :--- | :--- |

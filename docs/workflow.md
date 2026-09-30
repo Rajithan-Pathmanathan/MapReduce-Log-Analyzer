@@ -14,7 +14,7 @@
        ▼ (File Discovery & Validation)
 [InputManager]
        │
-       ▼ (Balanced Splits)
+       ▼ (Byte-Range Splits)
 [Coordinator] ─── spawns ───► [Map Workers 1..M]
                                        │
                                        ▼ (Emits: List[Tuple[str, int]])
@@ -46,7 +46,7 @@
 - **Responsibilities:**
   - Input file discovery and format validation.
   - Calculation of dataset file size.
-  - Workload partitioning into balanced input splits.
+  - Workload partitioning into byte-range input splits.
   - Process-based Map worker invocation using Python `multiprocessing`.
   - Log line tokenization, cleaning, and intermediate `(key, 1)` pair emission.
   - Map phase timing measurements.
