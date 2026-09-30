@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Tuple
 from src.config import Config
 from src.input_manager import InputManager, InputSplit, create_byte_splits
 from src.mapper import map_split_worker
+from src.reducer import reduce_worker
 from src.output_manager import OutputManager
 from src.shuffle import ShuffleManager
 
@@ -139,7 +140,15 @@ class Coordinator:
         :param partitions: Mapping from reducer ID to partition payload.
         :return: List of results collected from each reduce worker.
         """
-        raise NotImplementedError("Coordinator orchestration of reduce phase.")
+        tasks = [
+            (partitions.get(r_id, {}), r_id)
+            for r_id in range(self.config.reduce_workers)
+        ]
+        with multiprocessing.Pool(processes=self.config.reduce_workers) as pool:
+            outputs = pool.starmap(reduce_worker, tasks)
+        for r_id, out in enumerate(outputs):
+            self._log(f"reducer {r_id} done: {len(out)} keys")
+        return outputs
 
     def execute_job(self) -> Dict[str, Any]:
         """
@@ -162,6 +171,12 @@ class Coordinator:
         shuffle_start = time.perf_counter()
         partitions = self.shuffle_manager.shuffle_and_partition(intermediate_pairs)
         self.metrics["shuffle_time_seconds"] = time.perf_counter() - shuffle_start
+        self.metrics["keys_per_reducer"] = [len(partitions[r]) for r in sorted(partitions)]
+        self._log(
+            f"Shuffle finished: {sum(self.metrics['keys_per_reducer'])} unique keys -> "
+            f"{self.config.reduce_workers} partitions {self.metrics['keys_per_reducer']} "
+            f"in {self.metrics['shuffle_time_seconds']:.3f}s"
+        )
 
         # Step 5: Reduce (Member 2)
         reduce_start = time.perf_counter()
