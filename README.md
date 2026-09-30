@@ -104,6 +104,7 @@ MapReduce-Log-Analyzer/
 │   ├── workflow.md                    # Data flow & interface contracts
 │   ├── implementation_notes.md        # Concurrency & error handling notes
 │   ├── member1_coordinator_map.md     # Member 1 component notes
+│   ├── Member1_Technical_Report_and_Handoff.docx  # Member 1 Word report
 │   └── experiment_results.md          # Measured benchmark results
 │
 └── sample_data/                       # Test datasets
