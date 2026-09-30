@@ -70,7 +70,11 @@ def parse_arguments() -> argparse.Namespace:
         default=DEFAULT_CONFIG.top_n_results,
         help="Number of top frequent keys to display (default: %(default)s)",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    for name in ("map_workers", "reduce_workers", "top_n"):
+        if getattr(args, name) < 1:
+            parser.error(f"--{name.replace('_', '-')} must be >= 1")
+    return args
 
 
 def main() -> None:
@@ -97,9 +101,6 @@ def main() -> None:
     try:
         coordinator = Coordinator(config)
         coordinator.execute_job()
-    except NotImplementedError as nie:
-        print(f"[INITIALIZATION STATE] {nie}")
-        print("Pipeline components are defined and ready for team member implementation.")
     except Exception as exc:
         print(f"[ERROR] Execution failed: {exc}", file=sys.stderr)
         sys.exit(1)

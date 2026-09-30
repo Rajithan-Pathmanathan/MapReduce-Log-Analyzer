@@ -57,6 +57,7 @@ class Coordinator:
             "shuffle_time_seconds": 0.0,
             "reduce_time_seconds": 0.0,
             "total_execution_time_seconds": 0.0,
+            "top_n": config.top_n_results,
         }
 
     def _log(self, message: str) -> None:

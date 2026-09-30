@@ -28,7 +28,7 @@ class Config:
     # File and Directory Paths
     input_dir: Path = PROJECT_ROOT / "input"
     output_dir: Path = PROJECT_ROOT / "output"
-    output_file_name: str = "analysis_summary.txt"
+    output_file_name: str = "result.txt"
 
     # Worker Concurrency Settings (Default values for initial testing)
     map_workers: int = 4

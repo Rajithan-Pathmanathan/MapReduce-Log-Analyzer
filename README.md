@@ -2,18 +2,19 @@
 
 **Course:** INTE 22253 – Distributed Systems and Cloud Computing  
 **Institution:** University of Kelaniya, Faculty of Science, Department of Industrial Management  
-**Project:** Assignment 01 – Part C – Option 2 (MapReduce Log Analysis System)  
+**Assignment:** Assignment 01 – Part C – Option 2 (MapReduce Log Analysis System)  
+**Team:** Pavithira Rajkumar (Member 1), Dayaleeswaran (Member 2), Rajithan Pathmanathan (Member 3)  
 
 ---
 
 ## 1. Project Purpose
 
-Modern IT and enterprise applications generate continuous streams of semi-structured log files across multiple servers. Ingestion and analysis of these logs (e.g., aggregating frequency of error occurrences, warning events, and system accesses) quickly becomes a processing bottleneck when executed sequentially on a single thread.
+Modern server and cloud infrastructure continuously generates large volumes of operational log files. Ingestion and aggregation of these logs sequentially on a single thread becomes a performance bottleneck as dataset sizes grow.
 
-This project implements a **local, multi-process MapReduce log analysis pipeline** in Python. The system simulates distributed Map and Reduce workers on a multi-core machine using the Python `multiprocessing` library. The primary academic objectives are:
-- Demonstrate core MapReduce programming abstractions: input splitting, map transformation, deterministic shuffle/partitioning, parallel reduction, and result aggregation.
-- Measure performance characteristics (wall-clock execution time and throughput) across different worker configurations.
-- Compare and contrast local multi-process simulation against real-world distributed cloud platforms (e.g., Apache Hadoop, AWS EMR).
+This project implements a **local, multi-process MapReduce log analysis pipeline** in Python. The system simulates distributed Map and Reduce workers on a multi-core machine using Python's standard `multiprocessing` library. The primary goals are:
+- Demonstrate core MapReduce programming abstractions: input splitting, parallel mapping, intermediate key-value generation, deterministic shuffle/partitioning, parallel reduction, and final aggregation.
+- Measure actual execution times and scaling behavior across varying worker configurations (1, 2, and 4 workers).
+- Analyze the operational differences and trade-offs between a local multi-process simulation and a true cloud-native distributed deployment (e.g., Apache Hadoop, AWS EMR).
 
 ---
 
@@ -35,7 +36,7 @@ The execution pipeline adheres strictly to the canonical MapReduce data flow:
                          │ (Intermediate Key-Value Pairs)
                          ▼
                 SHUFFLE / PARTITION
-                         │ (Deterministic Routing)
+                         │ (Deterministic MD5 Routing)
         ┌────────────────┼────────────────┐
         ▼                ▼                ▼
   REDUCE WORKER 1  REDUCE WORKER 2  REDUCE WORKER N
@@ -47,11 +48,11 @@ The execution pipeline adheres strictly to the canonical MapReduce data flow:
 ```
 
 ### Stages of Execution:
-1. **Input Splitting:** `InputManager` discovers raw log files in `input/` and partitions them into balanced subsets.
-2. **Map Phase:** Multiple parallel `Map` worker processes read assigned splits, tokenize log entries into normalized terms, and emit intermediate key-value pairs `(term, 1)`.
-3. **Shuffle & Partition Phase:** `ShuffleManager` groups intermediate values by unique key (`term -> [1, 1, ...]`), and `Partitioner` applies deterministic hashing (`hash(term) % num_reducers`) to assign each key exclusively to one reducer partition.
-4. **Reduce Phase:** Multiple parallel `Reduce` worker processes aggregate counts for each assigned key (`term -> total_count`).
-5. **Output Generation:** `OutputManager` consolidates reduced results, sorts terms by descending frequency, displays a terminal summary (for academic report verification), and writes results to disk.
+1. **Input Splitting (`InputManager`):** Scans the input directory, validates file accessibility, measures file count, bytes and lines, and cuts every file into byte-range splits (default 256 KiB). A Map worker reads only its own range; each line belongs to the split containing its first byte.
+2. **Parallel Map Phase (`mapper.py`):** Independent worker processes tokenize log records, filter noise, and emit intermediate key-value pairs `(token, 1)`.
+3. **Shuffle & Partition Phase (`shuffle.py`, `partitioner.py`):** Aggregates intermediate pairs by unique key (`key -> [1, 1, ...]`) and applies deterministic hashing (`int(MD5(key), 16) % num_reducers`) to ensure identical keys always route to the same reducer partition.
+4. **Parallel Reduce Phase (`reducer.py`):** Reducer worker processes sum the occurrences for all keys in their assigned partition bucket.
+5. **Output Generation (`output_manager.py`):** Consolidates reduced partitions, sorts terms in descending frequency, prints a formatted execution summary to the console, and writes the persistent report to `output/result.txt`.
 
 ---
 
@@ -60,55 +61,70 @@ The execution pipeline adheres strictly to the canonical MapReduce data flow:
 ```text
 MapReduce-Log-Analyzer/
 │
-├── README.md                   # Complete project documentation and guide
-├── requirements.txt            # Dependency specification (standard library only)
-├── .gitignore                  # Git exclusions for Python artifacts & output
+├── README.md                          # Comprehensive project documentation
+├── requirements.txt                   # Standard library declaration (no 3rd-party dependencies)
+├── .gitignore                         # Python, environment, and cache exclusions
 │
-├── input/                      # Input directory for target log files
-│   └── .gitkeep
+├── input/                             # Target directory for raw log files
+│   ├── .gitkeep
+│   ├── server_1.log
+│   ├── server_2.log
+│   ├── server_3.log
+│   ├── server_4.log
+│   └── empty.log
 │
-├── output/                     # Output directory for analysis reports
-│   └── .gitkeep
+├── output/                            # Output directory for summary reports
+│   ├── .gitkeep
+│   └── result.txt                     # Final generated analysis report
 │
-├── src/                        # Modular source code
-│   ├── __init__.py             # Package initializer
-│   ├── main.py                 # Application CLI entry point
-│   ├── coordinator.py          # MapReduce workflow coordinator
-│   ├── input_manager.py        # File discovery, validation, and splitting
-│   ├── mapper.py               # Map worker tokenization & key-value emission
-│   ├── partitioner.py          # Deterministic key-to-reducer routing
-│   ├── shuffle.py              # Intermediate grouping & partition staging
-│   ├── reducer.py              # Reduce worker aggregation logic
-│   ├── output_manager.py       # Result consolidation, formatting & export
-│   └── config.py               # Centralized configuration settings
+├── src/                               # Modular source code
+│   ├── __init__.py                    # Package initializer
+│   ├── main.py                        # Application entry point & CLI parser
+│   ├── coordinator.py                 # Pipeline lifecycle coordinator
+│   ├── mapper.py                      # Log tokenization & intermediate pair generation
+│   ├── shuffle.py                     # Grouping by key & partition routing
+│   ├── partitioner.py                 # Deterministic hash partitioner
+│   ├── reducer.py                     # Reducer worker aggregation logic
+│   ├── input_manager.py               # File discovery, validation & splitting
+│   ├── output_manager.py              # Consolidation, sorting & summary reporting
+│   └── config.py                      # Centralized configuration dataclass
 │
-├── tests/                      # Unit and integration test suite
+├── tests/                             # Complete unit and integration test suite
 │   ├── __init__.py
-│   ├── test_input_manager.py   # Unit tests for input discovery & splitting
-│   ├── test_mapper.py          # Unit tests for map tokenization
-│   ├── test_partitioner.py     # Unit tests for deterministic routing
-│   ├── test_shuffle.py         # Unit tests for intermediate grouping
-│   ├── test_reducer.py         # Unit tests for reduce aggregation
-│   └── test_integration.py     # End-to-end pipeline integration tests
+│   ├── test_input_manager.py          # Member 1 unit tests (discovery, splitting)
+│   ├── test_mapper.py                 # Member 1 unit tests (tokenization, mapping)
+│   ├── test_coordinator.py            # Member 1 tests (Map stage, workers, metrics)
+│   ├── test_partitioner.py            # Member 2 unit tests (hash consistency)
+│   ├── test_shuffle.py                # Member 2 unit tests (grouping, partition buckets)
+│   ├── test_reducer.py                # Member 2 unit tests (aggregation)
+│   └── test_integration.py            # Member 3 integration tests (Tests A-E)
 │
-├── docs/                       # Technical reports and evaluation templates
-│   ├── architecture.md         # Detailed architectural documentation
-│   ├── workflow.md             # Development workflow & interface contracts
-│   ├── implementation_notes.md # Technical guidelines & error handling
-│   └── experiment_results.md   # Empirical benchmark log (no fabricated data)
+├── docs/                              # Technical reports & empirical evaluation
+│   ├── architecture.md                # System design & Cloud vs. Local comparison
+│   ├── workflow.md                    # Data flow & interface contracts
+│   ├── implementation_notes.md        # Concurrency & error handling notes
+│   ├── member1_coordinator_map.md     # Member 1 component notes
+│   └── experiment_results.md          # Measured benchmark results
 │
-└── sample_data/                # Sample datasets for testing & benchmarking
-    ├── small/                  # Lightweight test logs (< 1 MB)
-    └── medium/                 # Benchmark evaluation logs (5 - 20 MB)
+└── sample_data/                       # Test datasets
+    ├── generate_datasets.py           # Reproducible dataset generator script
+    ├── benchmark.py                   # Worker-count benchmark (measured, median of runs)
+    ├── small/                         # Lightweight test logs (115 KB, 1,000 lines)
+    └── medium/                        # Scaled benchmark logs (3.30 MB, 30,000 lines)
 ```
 
 ---
 
 ## 4. Requirements
 
-- **Operating System:** Windows 10/11, Linux, or macOS
-- **Runtime:** Python 3.8 or higher
-- **Dependencies:** None. The project relies strictly on the **Python Standard Library** (`multiprocessing`, `pathlib`, `os`, `re`, `hashlib`, `unittest`, `dataclasses`, `time`).
+- **Operating System:** Windows 10/11, Linux, or macOS (Tested on Windows 11 AMD64)
+- **Runtime:** Python 3.8 or higher (Tested on Python 3.12.10)
+- **Dependencies:** Strictly Python Standard Library modules:
+  - `multiprocessing` (worker process simulation)
+  - `pathlib`, `os` (filesystem operations)
+  - `re`, `hashlib` (tokenization & deterministic partitioning)
+  - `unittest` (automated testing framework)
+  - `time`, `dataclasses`, `collections`, `typing`
 
 ---
 
@@ -116,7 +132,7 @@ MapReduce-Log-Analyzer/
 
 1. **Clone the repository:**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/Rajithan-Pathmanathan/MapReduce-Log-Analyzer.git
    cd MapReduce-Log-Analyzer
    ```
 
@@ -125,27 +141,15 @@ MapReduce-Log-Analyzer/
    python --version
    ```
 
-3. *(Optional)* Create and activate a Python virtual environment:
-   ```bash
-   python -m venv venv
-   # Windows:
-   .\venv\Scripts\activate
-   # Linux/macOS:
-   source venv/bin/activate
-   ```
-
 ---
 
 ## 6. How to Prepare Input Data
 
-Place your `.log` or `.txt` files directly into the `input/` folder, or point to one of the directories in `sample_data/`:
+Place your `.log` or `.txt` files directly into `input/`, or use the pre-generated benchmark datasets in `sample_data/`:
 
 ```bash
-# Example structure:
-input/
-├── server_alpha.log
-├── server_beta.log
-└── application.log
+# Re-generate fresh sample datasets at any time:
+python sample_data/generate_datasets.py
 ```
 
 ---
@@ -155,18 +159,23 @@ input/
 Execute the pipeline via the command line:
 
 ```bash
-# Run with default settings (processes files in input/):
+# Run with default settings (processes input/ with 4 Map workers, 2 Reduce workers):
 python src/main.py
 
-# Run with custom worker concurrency and input directory:
-python src/main.py --input sample_data/small --map-workers 4 --reduce-workers 2 --top-n 15
+# Run on the medium benchmark dataset:
+python src/main.py --input sample_data/medium --map-workers 4 --reduce-workers 2 --top-n 10
+
+# Compare worker counts (prints a Markdown table of measured timings):
+python sample_data/benchmark.py
 ```
+
+Worker counts and `--top-n` must be at least 1. While running, the coordinator prints one line per split, the shuffle partition sizes and one line per reducer, followed by the summary.
 
 ---
 
 ## 8. Configuration Options
 
-Runtime options can be set via command-line arguments or modified centrally in `src/config.py`:
+Runtime options can be set via CLI arguments or modified centrally in `src/config.py`:
 
 | Parameter | CLI Flag | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -178,51 +187,105 @@ Runtime options can be set via command-line arguments or modified centrally in `
 
 ---
 
-## 9. Output Description
+## 9. Output Description & Verified Results
 
-Upon successful execution, the system produces:
-1. **A formatted console summary** detailing dataset statistics, worker allocation, execution timing per stage, and Top-N frequent terms. This output is formatted specifically to provide clean verification for the university report (Figure 7 requirement).
-2. **A persistent report file** saved to `output/analysis_summary.txt`.
+When the pipeline finishes, the system writes the report to `output/result.txt` (ignored by git). Actual output of `python src/main.py --input sample_data/medium --map-workers 4 --reduce-workers 2`:
 
----
+```text
+MapReduce Log Analysis Results
+==============================
 
-## 10. Testing
+Input Files    : 5
+Input Size     : 3.2992 MB (3,459,447 bytes)
+Map Workers    : 4
+Reduce Workers : 2
+Input Lines    : 30,000
+Input Splits   : 15
+Map Output     : 253,868 (term, 1) pairs
+Unique Keys    : 84
+Keys/Reducer   : [47, 37]
+Execution Time : 0.7535 seconds
 
-Run all unit and integration tests using Python's built-in `unittest` runner:
+Phase Breakdown
+---------------
+Map Phase      : 0.4315 seconds
+Shuffle Phase  : 0.0244 seconds
+Reduce Phase   : 0.2908 seconds
 
-```bash
-# Run the entire test suite:
-python -m unittest discover -s tests -p "test_*.py"
-
-# Run a specific test module:
-python -m unittest tests/test_partitioner.py
+Top Results
+-----------
+info                    14909
+for                      9986
+warning                  7955
+error                    6537
+inventory-api            6042
+payment-gateway          6041
+web-frontend             6023
+from                     6019
+db-cluster               5997
+database                 5969
 ```
 
----
-
-## 11. Performance Experimentation
-
-To evaluate scaling characteristics, benchmark runs will be performed across varying worker counts (e.g., 1 vs 2 vs 4 workers) on the same dataset.
-
-Actual wall-clock execution times, phase durations, and unique key counts will be collected empirically and logged directly into `docs/experiment_results.md`. **No synthetic or fabricated benchmark results are used.**
+Timings vary slightly between runs; counts do not.
 
 ---
 
-## 12. Limitations (Simulation vs. Production Cloud)
+## 10. Automated Testing
 
-1. **Shared Compute & Memory:** All simulated workers share one machine's CPU cores and RAM bus, unlike multi-node clusters with isolated hardware resources.
-2. **Local Storage I/O:** Reading from local disk avoids network transport overhead but introduces local disk I/O contention. Real distributed systems leverage distributed filesystems (HDFS, Amazon S3) with data locality optimizations.
-3. **IPC vs. Network Shuffle:** Inter-worker data transfer utilizes local memory/process pipes rather than high-throughput distributed network shuffle protocols.
-4. **Fault Tolerance Scope:** In this simulation, worker process exceptions are caught locally by the parent process; production clusters implement cluster-wide heartbeat monitors, node-level failover, and speculative execution.
+The project includes 61 unit and end-to-end integration test cases covering the complete pipeline:
+
+```bash
+# Run all tests using Python standard unittest:
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+### Verified Test Matrix:
+- **Test A (Normal Workload):** Validates repeated term aggregation across multiple log files.
+- **Test B (Empty File):** Validates that empty log files are safely handled without throwing exceptions.
+- **Test C (Multiple Files):** Validates cross-file aggregation across 4 distinct logs.
+- **Test D (Multiple Workers):** Validates execution across 4 Map workers and 3 Reduce workers.
+- **Test E (Known Expected Result):** Validates the exact test case from the assignment prompt:
+  - File 1: `error error info`
+  - File 2: `error warning info`
+  - Result: `error = 3`, `info = 2`, `warning = 1`.
 
 ---
 
-## 13. Team Responsibilities
+## 11. Performance Experiment (Measured Results)
 
-The codebase is partitioned into three distinct, non-overlapping workstreams:
+`python sample_data/benchmark.py` on `sample_data/medium` (5 files, 3,459,447 bytes, 30,000 lines, 15 splits, 253,868 intermediate pairs, 84 unique keys). Median of 3 runs, Python 3.12.10, Windows 11, 12 logical CPUs:
 
-| Team Member | Core Focus | Primary Source Files | Primary Test Files |
-| :--- | :--- | :--- | :--- |
-| **Member 1** | Coordinator + Map Phase | `src/coordinator.py`<br>`src/input_manager.py`<br>`src/mapper.py` | `tests/test_input_manager.py`<br>`tests/test_mapper.py` |
-| **Member 2** | Shuffle/Partition + Reduce Phase | `src/partitioner.py`<br>`src/shuffle.py`<br>`src/reducer.py` | `tests/test_partitioner.py`<br>`tests/test_shuffle.py`<br>`tests/test_reducer.py` |
-| **Member 3** | Integration + Testing + Documentation | `src/main.py`<br>`src/output_manager.py` | `tests/test_integration.py`<br>`docs/*`<br>`README.md` |
+| Map workers | Reduce workers | Map (s) | Shuffle (s) | Reduce (s) | Total (s) |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| 1 | 1 | 0.5166 | 0.0226 | 0.2558 | **0.8011** |
+| 2 | 1 | 0.4113 | 0.0236 | 0.2564 | **0.6962** |
+| 2 | 2 | 0.4161 | 0.0238 | 0.2628 | **0.7107** |
+| 4 | 2 | 0.4451 | 0.0241 | 0.2783 | **0.8137** |
+| 8 | 4 | 0.5634 | 0.0247 | 0.3210 | **0.9121** |
+
+**Observation:** 2 Map workers were fastest (Map 0.52 s → 0.41 s). With 4 or 8 workers the job got slower, because on Windows each worker process is started with `spawn` (a fresh interpreter), and at 3.3 MB that start-up cost is larger than the parallel work saved. The Reduce phase (84 keys) is almost entirely process start-up time. Details: `docs/experiment_results.md`.
+
+---
+
+## 11a. Figure 7
+
+Figure 7 must be a real screenshot. Run `python src/main.py --input sample_data/medium --map-workers 4 --reduce-workers 2` in a terminal and capture the window showing the command, the coordinator progress lines and the summary. Caption: **Figure 7: MapReduce program execution and output**.
+
+---
+
+## 12. Limitations (Local Simulation vs. Production Cloud)
+
+1. **Single-Node Resource Contention:** All simulated workers run on one physical machine, sharing CPU cache, RAM bus, and disk bandwidth.
+2. **Local File I/O vs. Distributed Storage:** Files are read from local disk; there is no distributed filesystem (e.g., HDFS, Amazon S3) with data block locality.
+3. **IPC vs. Network Shuffle:** Data transfer between mappers and reducers occurs via local process pipes rather than distributed HTTP/RPC network shuffles.
+4. **Fault Tolerance Scope:** Worker errors are handled via parent process exception handling; real cloud clusters implement node-level heartbeats, task rescheduling, and speculative execution.
+
+---
+
+## 13. Team Division of Responsibilities
+
+| Member | Major Responsibilities | Implemented Components |
+| :--- | :--- | :--- |
+| **Member 1** – Pavithira Rajkumar | Coordinator + Map Phase | `src/input_manager.py`, `src/mapper.py`, `src/coordinator.py`, `tests/test_input_manager.py`, `tests/test_mapper.py`, `tests/test_coordinator.py` |
+| **Member 2** – Dayaleeswaran | Shuffle/Partition + Reduce Phase | `src/partitioner.py`, `src/shuffle.py`, `src/reducer.py`, `tests/test_partitioner.py`, `tests/test_shuffle.py`, `tests/test_reducer.py` |
+| **Member 3** – Rajithan Pathmanathan | Integration, Testing, Performance & Docs | `src/output_manager.py`, `src/main.py`, `tests/test_integration.py`, `sample_data/*`, `docs/*`, `README.md`, Figure 7 |
