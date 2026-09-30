@@ -1,0 +1,14 @@
+# MapReduce Log Analysis System
+# INTE 22253 - Distributed Systems and Cloud Computing
+#
+# No external third-party dependencies are required.
+# This implementation relies entirely on the Python Standard Library:
+#   - multiprocessing (simulating parallel workers via processes)
+#   - pathlib, os (file discovery, path management, file I/O)
+#   - collections, typing, dataclasses (data structures, type annotations)
+#   - time (execution timing and performance measurements)
+#   - re, hashlib (log tokenization and deterministic hash partitioning)
+#   - unittest (unit and integration testing suite)
+#
+# Optional test runners or development tools (not strictly required):
+# pytest>=7.0.0
