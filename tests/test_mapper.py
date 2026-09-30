@@ -22,7 +22,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.mapper import tokenize_log_line, map_function, map_worker
+from src.mapper import tokenize_log_line, map_function, map_worker, read_split_lines, map_split_worker
+from src.input_manager import create_byte_splits
 
 
 class TestTokenizeLogLine(unittest.TestCase):
@@ -137,6 +138,82 @@ class TestMapWorker(unittest.TestCase):
         missing = self.tmp / "ghost.log"
         result = map_worker([missing], worker_id=0)
         self.assertEqual(result, [])
+
+
+class TestReadSplitLines(unittest.TestCase):
+    """Tests for read_split_lines()."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def write(self, name, text):
+        p = self.tmp / name
+        with open(p, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        return p
+
+    def test_all_splits_cover_every_line_exactly_once(self):
+        """For varying split sizes, every line appears exactly once across all splits."""
+        lines = [f"line {i} error info {'x' * (i % 7)}\n" for i in range(300)]
+        path = self.write("a.log", "".join(lines))
+        for split_size in (1, 3, 7, 16, 50, 999, 10 ** 6):
+            splits = create_byte_splits([path], split_size=split_size)
+            got = []
+            for s in splits:
+                got.extend(read_split_lines(s.path, s.start, s.end))
+            self.assertEqual(got, lines, f"split_size={split_size}")
+
+    def test_last_line_without_newline_is_read(self):
+        """A final line with no trailing newline is still yielded."""
+        path = self.write("a.log", "error one\nerror two")
+        splits = create_byte_splits([path], split_size=4)
+        got = []
+        for s in splits:
+            got.extend(read_split_lines(s.path, s.start, s.end))
+        self.assertEqual(got, ["error one\n", "error two"])
+
+
+class TestMapSplitWorker(unittest.TestCase):
+    """Tests for map_split_worker()."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def write(self, name, text):
+        p = self.tmp / name
+        with open(p, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        return p
+
+    def test_basic_pairs_and_line_count(self):
+        """map_split_worker returns correct pairs and lines=1 for single line."""
+        path = self.write("a.log", "ERROR Database ERROR\n")
+        splits = create_byte_splits([path], split_size=256 * 1024)
+        result = map_split_worker(splits[0])
+        self.assertEqual(result["lines"], 1)
+        self.assertEqual(
+            result["pairs"],
+            [("error", 1), ("database", 1), ("error", 1)],
+        )
+
+    def test_repeated_terms_across_splits(self):
+        """1000 lines of 'error error warning' across small splits."""
+        from collections import Counter
+        content = "error error warning\n" * 1000
+        path = self.write("a.log", content)
+        splits = create_byte_splits([path], split_size=997)
+        all_pairs = []
+        for s in splits:
+            all_pairs.extend(map_split_worker(s)["pairs"])
+        counts = Counter(k for k, _ in all_pairs)
+        self.assertEqual(counts["error"], 2000)
+        self.assertEqual(counts["warning"], 1000)
 
 
 if __name__ == "__main__":

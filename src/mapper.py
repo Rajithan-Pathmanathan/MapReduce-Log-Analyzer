@@ -109,3 +109,79 @@ def map_worker(
             print(f"[Map worker {worker_id}] WARNING: {exc}, skipping: {path}")
     return pairs
 
+
+# ---------------------------------------------------------------------------
+# Byte-range reading (Step 5)
+# ---------------------------------------------------------------------------
+
+def read_split_lines(path, start: int, end: int):
+    """
+    Yield the decoded lines that belong to the byte range [start, end) of a file.
+
+    Line-boundary rule (same as Hadoop's LineRecordReader):
+      - A split OWNS every line whose FIRST BYTE lies inside [start, end).
+      - If start > 0, seek to (start-1) and discard the partial line
+        (it belongs to the previous split).
+      - Reading continues while the current line's first byte is < end;
+        the last line may extend past end and is still included.
+
+    :param path: Path to the file.
+    :param start: First byte of the split (inclusive).
+    :param end: One past the last byte of the split.
+    :yields: Decoded text lines (UTF-8, errors replaced).
+    """
+    with open(path, "rb") as f:
+        if start > 0:
+            f.seek(start - 1)
+            f.readline()          # skip partial line belonging to previous split
+        pos = f.tell()
+        while pos < end:
+            raw = f.readline()
+            if not raw:
+                break
+            pos += len(raw)
+            yield raw.decode("utf-8", errors="replace")
+
+
+def map_split_worker(
+    split,
+    case_sensitive: bool = False,
+    min_word_length: int = 2,
+) -> dict:
+    """
+    Entry point executed inside a worker process for one InputSplit.
+
+    Accepts either an InputSplit dataclass or a plain dict with the same
+    fields (split_id, path, start, end) for pickling compatibility.
+
+    Returns:
+        {
+            "split_id":   int,
+            "worker_pid": int,
+            "lines":      int,
+            "pairs":      List[Tuple[str, int]],
+            "elapsed":    float,   # seconds (perf_counter)
+        }
+    """
+    t0 = time.perf_counter()
+    # Accept both InputSplit dataclass and plain dict
+    if hasattr(split, "split_id"):
+        split_id, path, start, end = split.split_id, split.path, split.start, split.end
+    else:
+        split_id, path, start, end = (
+            split["split_id"], split["path"], split["start"], split["end"]
+        )
+
+    pairs = []
+    lines = 0
+    for line in read_split_lines(path, start, end):
+        lines += 1
+        pairs.extend(map_function(line, case_sensitive, min_word_length))
+
+    return {
+        "split_id": split_id,
+        "worker_pid": os.getpid(),
+        "lines": lines,
+        "pairs": pairs,
+        "elapsed": time.perf_counter() - t0,
+    }
