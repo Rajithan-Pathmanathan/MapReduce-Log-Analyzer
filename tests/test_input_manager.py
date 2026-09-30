@@ -22,7 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.input_manager import InputManager
+from src.input_manager import InputManager, InputSplit, create_byte_splits
 
 
 class TempDirTest(unittest.TestCase):
@@ -141,6 +141,44 @@ class TestCreateSplits(TempDirTest):
         im = InputManager(self.tmp)
         with self.assertRaises(ValueError):
             im.create_splits([], 0)
+
+
+class TestByteSplits(TempDirTest):
+    """Tests for module-level create_byte_splits()."""
+
+    def test_ranges_for_25_byte_file_size_10(self):
+        """25-byte file with split_size=10 → ranges (0,10),(10,20),(20,25) ids 0,1,2."""
+        path = self.write("a.log", "x" * 25)
+        splits = create_byte_splits([path], split_size=10)
+        self.assertEqual(len(splits), 3)
+        self.assertEqual([(s.start, s.end) for s in splits],
+                         [(0, 10), (10, 20), (20, 25)])
+        self.assertEqual([s.split_id for s in splits], [0, 1, 2])
+
+    def test_empty_file_gives_no_splits(self):
+        """Empty file should produce no splits."""
+        path = self.write("empty.log", "")
+        splits = create_byte_splits([path], split_size=10)
+        self.assertEqual(splits, [])
+
+    def test_zero_split_size_raises(self):
+        """split_size=0 should raise ValueError."""
+        with self.assertRaises(ValueError):
+            create_byte_splits([], split_size=0)
+
+    def test_split_ids_are_global_sequence(self):
+        """split_ids run 0..n-1 across all files."""
+        p1 = self.write("a.log", "x" * 15)
+        p2 = self.write("b.log", "y" * 10)
+        splits = create_byte_splits([p1, p2], split_size=10)
+        self.assertEqual([s.split_id for s in splits], list(range(len(splits))))
+
+    def test_length_property(self):
+        """InputSplit.length should equal end - start."""
+        path = self.write("a.log", "x" * 25)
+        splits = create_byte_splits([path], split_size=10)
+        for s in splits:
+            self.assertEqual(s.length, s.end - s.start)
 
 
 if __name__ == "__main__":

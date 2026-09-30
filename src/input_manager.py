@@ -13,8 +13,69 @@ Responsibilities:
 - Handle missing files or unreadable file errors gracefully.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple, Union
+
+# ---------------------------------------------------------------------------
+# Byte-range split (module-level, picklable for multiprocessing)
+# ---------------------------------------------------------------------------
+
+DEFAULT_SPLIT_SIZE_BYTES: int = 256 * 1024   # 256 KiB per input split
+
+
+@dataclass(frozen=True)
+class InputSplit:
+    """
+    A byte-range slice of one input file assigned to a single Map worker.
+
+    Only the file path and offsets are sent to the worker; the worker opens
+    the file and reads its own range so the coordinator never ships raw data
+    (analogous to a Hadoop split referencing an HDFS block).
+    """
+    split_id: int
+    path: Path
+    start: int
+    end: int
+
+    @property
+    def length(self) -> int:
+        """Number of bytes covered by this split."""
+        return self.end - self.start
+
+
+def create_byte_splits(
+    files: List[Path],
+    split_size: int = DEFAULT_SPLIT_SIZE_BYTES,
+) -> List["InputSplit"]:
+    """
+    Cut every file into byte-range splits of at most `split_size` bytes.
+
+    Empty files produce no splits. `split_id` is a global counter that
+    runs 0..n-1 across all files in the order they appear.
+
+    :param files: Sorted list of input file Paths.
+    :param split_size: Maximum bytes per split.
+    :return: List of InputSplit objects.
+    :raises ValueError: If split_size < 1.
+    """
+    if split_size < 1:
+        raise ValueError("split_size must be >= 1")
+    splits: List[InputSplit] = []
+    for path in files:
+        size = path.stat().st_size
+        start = 0
+        while start < size:
+            end = min(start + split_size, size)
+            splits.append(InputSplit(
+                split_id=len(splits),
+                path=path,
+                start=start,
+                end=end,
+            ))
+            start = end
+    return splits
+
 
 
 class InputManager:
