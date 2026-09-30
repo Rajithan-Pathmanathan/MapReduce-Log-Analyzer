@@ -21,6 +21,7 @@ Conceptual Transformation:
         Partition 1: {"info": [1]}
 """
 
+from collections import defaultdict
 from typing import Dict, Iterable, List, Tuple
 from src.partitioner import Partitioner
 
@@ -46,7 +47,10 @@ class ShuffleManager:
         :param intermediate_pairs: Flat iterable of (key, value) tuples from Map workers.
         :return: Dictionary mapping each unique key to its list of values.
         """
-        raise NotImplementedError("Member 2 to implement group_by_key.")
+        grouped: Dict[str, List[int]] = defaultdict(list)
+        for key, value in intermediate_pairs:
+            grouped[key].append(value)
+        return dict(grouped)
 
     def shuffle_and_partition(
         self, intermediate_pairs: Iterable[Tuple[str, int]]
@@ -58,4 +62,17 @@ class ShuffleManager:
         :param intermediate_pairs: Flat iterable of (key, value) tuples from Map workers.
         :return: Dict mapping reducer_id to its assigned sub-dictionary of {key: [values]}.
         """
-        raise NotImplementedError("Member 2 to implement shuffle_and_partition.")
+        # Initialize partition dictionaries for each reducer
+        partitions: Dict[int, Dict[str, List[int]]] = {
+            r_id: {} for r_id in range(self.num_reducers)
+        }
+
+        # Step 1: Group occurrences by key
+        grouped_data = self.group_by_key(intermediate_pairs)
+
+        # Step 2: Route each unique key to its deterministic partition
+        for key, values in grouped_data.items():
+            partition_id = self.partitioner.get_partition(key)
+            partitions[partition_id][key] = values
+
+        return partitions

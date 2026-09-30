@@ -15,7 +15,7 @@ Conceptual Transformation:
     Partition Input:
         {"error": [1, 1, 1], "warning": [1]}
     Reducer Output:
-        {"error": 3, "warning": 1}
+        [("error", 3), ("warning", 1)]
 """
 
 from typing import Dict, List, Tuple
@@ -29,7 +29,7 @@ def reduce_values(key: str, values: List[int]) -> int:
     :param values: List of integer occurrences (e.g., [1, 1, 1]).
     :return: Aggregated total count.
     """
-    raise NotImplementedError("Member 2 to implement reduce_values.")
+    return sum(values)
 
 
 def reduce_worker(
@@ -43,4 +43,10 @@ def reduce_worker(
     :param worker_id: Numeric identifier for the reduce worker.
     :return: List of finalized (key, count) tuples for this partition.
     """
-    raise NotImplementedError("Member 2 to implement reduce_worker.")
+    reduced_results: List[Tuple[str, int]] = []
+
+    for key, values in partition_data.items():
+        total = reduce_values(key, values)
+        reduced_results.append((key, total))
+
+    return reduced_results

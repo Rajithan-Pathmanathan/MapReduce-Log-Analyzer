@@ -7,6 +7,7 @@ Covers:
 - Aggregating list of values for individual keys
 - Processing full partition dictionaries in reduce workers
 - Correctness of count summation
+- Handling empty partitions
 """
 
 import sys
@@ -25,19 +26,28 @@ class TestReducer(unittest.TestCase):
 
     def test_reduce_values_sum(self):
         """Should sum all occurrences for a specific key."""
-        # Scaffolding placeholder for Member 2
-        # result = reduce_values("error", [1, 1, 1, 1])
-        # self.assertEqual(result, 4)
-        pass
+        result = reduce_values("error", [1, 1, 1, 1])
+        self.assertEqual(result, 4)
+
+    def test_reduce_values_single(self):
+        """Single occurrence should yield 1."""
+        result = reduce_values("warning", [1])
+        self.assertEqual(result, 1)
 
     def test_reduce_worker_output(self):
         """Should aggregate all keys present within the partition."""
-        # Scaffolding placeholder for Member 2
-        # partition_data = {"error": [1, 1], "info": [1]}
-        # output = reduce_worker(partition_data, worker_id=0)
-        # self.assertIn(("error", 2), output)
-        # self.assertIn(("info", 1), output)
-        pass
+        partition_data = {"error": [1, 1, 1], "info": [1, 1], "database": [1]}
+        output = reduce_worker(partition_data, worker_id=0)
+
+        result_dict = dict(output)
+        self.assertEqual(result_dict["error"], 3)
+        self.assertEqual(result_dict["info"], 2)
+        self.assertEqual(result_dict["database"], 1)
+
+    def test_reduce_worker_empty_partition(self):
+        """Empty partition should return an empty list."""
+        output = reduce_worker({}, worker_id=1)
+        self.assertEqual(output, [])
 
 
 if __name__ == "__main__":
