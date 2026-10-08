@@ -52,7 +52,7 @@ The system implements the **MapReduce programming model** to process and analyze
 2. **Input Manager (`src/input_manager.py`):**
    - Scans and validates input log files.
    - Computes total dataset size.
-   - Divides files into balanced input splits.
+   - Cuts files into byte-range input splits (default 256 KiB each).
 
 3. **Map Workers (`src/mapper.py`):**
    - Execute in parallel worker processes via Python `multiprocessing`.
